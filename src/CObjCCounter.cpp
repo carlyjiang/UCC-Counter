@@ -238,3 +238,151 @@ CObjCCounter::CObjCCounter(string lang) : CCJavaCsScalaCounter(lang)
 	skip_cmplx_cyclomatic_file_extension_list.push_back(".h");
 }
 
+int CObjCCounter::ParseFunctionName(const string &line, string &lastline,
+	filemap &functionStack, string &functionName, unsigned int &functionCount)
+{
+	string tline, str;
+	size_t idx, tidx, cnt, cnt2;
+	unsigned int fcnt, cyclomatic_cnt = 0;
+	string exclude = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_$";
+
+	// Because of Polymorphism change step above to show running here.
+	ENTER_2( "CObjCCounter::ParseFunctionName" );
+	SAVE_TO_3( "CUtil::TrimString" );
+	tline = CUtil::TrimString(line);
+	idx = tline.find('{');
+	if (idx != string::npos)
+	{
+		// check whether it is at first index, if yes then function name is at above line
+		if (idx == 0)
+		{
+			lineElement element(++functionCount, lastline);
+			functionStack.push_back(element);
+			lastline.erase();
+		}
+		else
+		{
+			str = tline.substr(0, idx);
+			tidx = cnt = cnt2 = 0;
+			if (str[0] != '(' && str[0] != ':' && (lastline.length() < 1 || lastline[lastline.length() - 1] != ':'))
+			{
+				while (tidx != string::npos)
+				{
+					tidx = str.find('(', tidx);
+					if (tidx != string::npos)
+					{
+						cnt++;
+						tidx++;
+					}
+				}
+				if (cnt > 0)
+				{
+					tidx = 0;
+					while (tidx != string::npos)
+					{
+						tidx = str.find(')', tidx);
+						if (tidx != string::npos)
+						{
+							cnt2++;
+							tidx++;
+						}
+					}
+				}
+			}
+			// make sure parentheses are closed and no parent class listed
+			if ((cnt > 0 && cnt == cnt2) || (lastline.length() > 0 && lastline[lastline.length() - 1] == ';'))
+				lastline = str;
+			else
+				lastline += " " + str;
+			lineElement element(++functionCount, CUtil::TrimString(lastline));
+			functionStack.push_back(element);
+			lastline.erase();
+		}
+	}
+	else if (tline.length() > 0 && tline[tline.length() - 1] != ';' &&
+		lastline.length() > 0 && lastline[lastline.length() - 1] != ';')
+	{
+		// append until all parentheses are closed
+		tidx = lastline.find('(');
+		if (tidx != string::npos)
+		{
+			cnt = 1;
+			while (tidx != string::npos)
+			{
+				tidx = lastline.find('(', tidx + 1);
+				if (tidx != string::npos)
+					cnt++;
+			}
+			tidx = lastline.find(')');
+			while (tidx != string::npos)
+			{
+				cnt++;
+				tidx = lastline.find(')', tidx + 1);
+			}
+			if (cnt % 2 != 0)
+				lastline += " " + tline;
+			else
+				lastline = tline;
+		}
+		else
+			lastline = tline;
+	}
+	else
+		lastline = tline;
+
+	idx = line.find('}');
+	if (idx != string::npos && !functionStack.empty())
+	{
+		str = functionStack.back().line;
+		fcnt = functionStack.back().lineNumber;
+		functionStack.pop_back();
+		if (str.find('-') != string::npos) {
+			idx = str.find(':');
+		} else {
+			idx = str.find('(');
+		}
+
+		if (idx != string::npos)
+		{
+			// search for cyclomatic complexity keywords and other possible keywords
+			SAVE_TO_3( "CUtil::CountTally cyclomatic complexity keywords and other" );
+			CUtil::CountTally(str, cmplx_cyclomatic_list, cyclomatic_cnt, 1, exclude, "", "", 0, casesensitive);
+
+			SAVE_TO_3( "CUtil::FindKeyword" );
+			if (cyclomatic_cnt <= 0 && CUtil::FindKeyword(str, "switch") == string::npos &&
+				CUtil::FindKeyword(str, "try") == string::npos && CUtil::FindKeyword(str, "finally") == string::npos &&
+				CUtil::FindKeyword(str, "return") == string::npos && str.find('=') == string::npos)
+			{
+				SAVE_TO_3( "CUtil::ClearRedundantSpaces" );
+				string myFunctionName = CUtil::ClearRedundantSpaces(str.substr(0, idx));
+			#ifdef	_DEBUG
+				if ( myFunctionName.size() == 0 )
+				{
+					// PrintCyclomaticComplexity will now skip any empty Function Names.
+					// Done this way as is easier and less Risk of adding Defects from complex Cyclomatic Complexity code
+					// TODO: Go through the CC code and the ParseFunctionName code and try to SAFELY improve.
+					// cout << endl << "CObjCCounter::ParseFunctionName() Empty function name allowed" << endl;
+				}
+			#endif
+				// May have the actual arg list so look for first ( and do not copy
+				if (myFunctionName.find('-') == string::npos) {
+					size_t myIdx = myFunctionName.find( '(' );
+					if ( myIdx != string::npos )
+						myFunctionName = myFunctionName.substr( 0, myIdx );
+				}
+
+				functionName = myFunctionName;
+
+				functionCount = fcnt;
+				lastline.erase();
+				SAVE_TO_3( "Exit CObjCCounter::ParseFunctionName Found" );
+				return 1;
+			}
+		}
+		lastline.erase();
+	}
+
+	SAVE_TO_3( "Exit CObjCCounter::ParseFunctionName Not found" );
+	return 0;
+}
+

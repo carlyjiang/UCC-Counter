@@ -21,6 +21,9 @@ class CObjCCounter : public CCJavaCsScalaCounter
 {
 public:
 	CObjCCounter( string lang = "OBJC" );
+protected:
+    int ParseFunctionName(const string &line, string &lastline,
+                          filemap &functionStack, string &functionName, unsigned int &functionCount);
 };
 
 #endif
